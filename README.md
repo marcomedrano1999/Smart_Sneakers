@@ -1,29 +1,15 @@
-| Supported Targets | ESP32 | ESP32-C2 | ESP32-C3 | ESP32-C6 | ESP32-H2 | ESP32-S2 | ESP32-S3 |
-| ----------------- | ----- | -------- | -------- | -------- | -------- | -------- | -------- |
+# Smart Sneakers
 
+This project simulates a pair of smart sneakers, which can be controlled through a mobile application. This project only implements the comm firmware.
 
-# CoAP server example
+![alt text](https://shimmering-respect-b21.notion.site/image/https%3A%2F%2Fs3-us-west-2.amazonaws.com%2Fsecure.notion-static.com%2F3ed2ae8c-1667-4102-943d-b6b671ee4cc3%2FUntitled.webp?table=block&id=7fbe8012-40e4-4b5d-b86d-85324e6bf1db&spaceId=1266d47d-140e-4e8d-a1a9-7b4a16f950fc&width=770&userId=&cache=v2)
 
-(See the README.md file in the upper level esp-idf 'examples' directory for more information
-about examples.)
-
-This CoAP server example is very simplified adaptation of one of the
-[libcoap](https://github.com/obgm/libcoap) examples.
-
-CoAP server example will startup a daemon task, receive requests / data from CoAP client and transmit
-data to CoAP client.
-
-If the incoming request requests the use of DTLS (connecting to port 5684), then the CoAP server will
-try to establish a DTLS session using the previously defined Pre-Shared Key (PSK) - which
-must be the same as the one that the CoAP client is using, or Public Key Infrastructure (PKI) where
-the PKI information must match as requested.
+This projects is based on the Espressif CoAP server example.
 
 The Constrained Application Protocol (CoAP) is a specialized web transfer protocol for use with
 constrained nodes and constrained networks in the Internet of Things.
 The protocol is designed for machine-to-machine (M2M) applications such as smart energy and
 building automation.
-
-Please refer to [RFC7252](https://www.rfc-editor.org/rfc/pdfrfc/rfc7252.txt.pdf) for more details.
 
 ## How to use example
 
