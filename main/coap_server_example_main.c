@@ -64,6 +64,9 @@ const static char *TAG = "CoAP_server";
 static char espressif_data[100];
 static int espressif_data_len = 0;
 
+static char shoelace_data[10];
+static int shoelace_data_len = 0;
+
 #ifdef CONFIG_COAP_MBEDTLS_PKI
 /* CA cert, taken from coap_ca.pem
    Server cert, taken from coap_server.crt
@@ -91,6 +94,7 @@ extern uint8_t oscore_conf_end[]   asm("_binary_coap_oscore_conf_end");
 #endif /* CONFIG_COAP_OSCORE_SUPPORT */
 
 #define INITIAL_DATA "Hello World!"
+#define SHOELACE_DATA_DEFAULT "untie"
 
 /*
  * The resource handler
@@ -154,6 +158,69 @@ hnd_espressif_delete(coap_resource_t *resource,
     espressif_data_len = strlen(espressif_data);
     coap_pdu_set_code(response, COAP_RESPONSE_CODE_DELETED);
 }
+
+
+/*
+ * The resource handler
+ */
+static void
+hnd_shoelace_get(coap_resource_t *resource,
+                  coap_session_t *session,
+                  const coap_pdu_t *request,
+                  const coap_string_t *query,
+                  coap_pdu_t *response)
+{
+    coap_pdu_set_code(response, COAP_RESPONSE_CODE_CONTENT);
+    coap_add_data_large_response(resource, session, request, response,
+                                 query, COAP_MEDIATYPE_TEXT_PLAIN, 60, 0,
+                                 (size_t)shoelace_data_len,
+                                 (const u_char *)shoelace_data,
+                                 NULL, NULL);
+}
+
+static void
+hnd_shoelace_put(coap_resource_t *resource,
+                  coap_session_t *session,
+                  const coap_pdu_t *request,
+                  const coap_string_t *query,
+                  coap_pdu_t *response)
+{
+    size_t size;
+    size_t offset;
+    size_t total;
+    const unsigned char *data;
+
+    coap_resource_notify_observers(resource, NULL);
+
+    if (strcmp (shoelace_data, SHOELACE_DATA_DEFAULT) == 0) {
+        coap_pdu_set_code(response, COAP_RESPONSE_CODE_CREATED);
+    } else {
+        coap_pdu_set_code(response, COAP_RESPONSE_CODE_CHANGED);
+    }
+
+    /* coap_get_data_large() sets size to 0 on error */
+    (void)coap_get_data_large(request, &size, &data, &offset, &total);
+
+    if (size == 0) {      /* re-init */
+        snprintf(shoelace_data, sizeof(shoelace_data), SHOELACE_DATA_DEFAULT);
+        shoelace_data_len = strlen(shoelace_data);
+    } else {
+        // Only copy if the arguments are within the desired states
+        if(strncmp("tie",(char*)data, size) == 0 || strncmp("untie",(char*)data, size) == 0)
+        {
+            shoelace_data_len = size > sizeof (shoelace_data) ? sizeof (shoelace_data) : size;
+            memset(shoelace_data,0,sizeof(shoelace_data));
+            memcpy (shoelace_data, data, shoelace_data_len);
+            ESP_LOGI(TAG,"/shoe/shoelace received data: %s", (char*)shoelace_data);
+        }
+        else
+        {
+            // If the argument is not one of the states, it should let know the client
+            coap_pdu_set_code(response, COAP_RESPONSE_CODE_BAD_OPTION);
+        }
+    }
+}
+
 
 #ifdef CONFIG_COAP_OSCORE_SUPPORT
 static void
@@ -240,6 +307,12 @@ static void coap_example_server(void *p)
 
     snprintf(espressif_data, sizeof(espressif_data), INITIAL_DATA);
     espressif_data_len = strlen(espressif_data);
+
+    // Initialize the data
+    snprintf(shoelace_data, sizeof(shoelace_data), SHOELACE_DATA_DEFAULT);
+    shoelace_data_len = strlen(shoelace_data);
+
+
     coap_set_log_handler(coap_log_handler);
     coap_set_log_level(EXAMPLE_COAP_LOG_DEFAULT_LEVEL);
 
@@ -376,9 +449,25 @@ static void coap_example_server(void *p)
         coap_register_handler(resource, COAP_REQUEST_GET, hnd_espressif_get);
         coap_register_handler(resource, COAP_REQUEST_PUT, hnd_espressif_put);
         coap_register_handler(resource, COAP_REQUEST_DELETE, hnd_espressif_delete);
+        
         /* We possibly want to Observe the GETs */
         coap_resource_set_get_observable(resource, 1);
         coap_add_resource(ctx, resource);
+
+        // Add shoelance service
+        resource = coap_resource_init(coap_make_str_const("shoe/shoelace"), 0);
+        if (!resource) {
+            ESP_LOGE(TAG, "coap_resource_init() failed");
+            goto clean_up;
+        }
+        coap_register_handler(resource, COAP_REQUEST_GET, hnd_shoelace_get);
+        coap_register_handler(resource, COAP_REQUEST_PUT, hnd_shoelace_put);
+        
+        /* We possibly want to Observe the GETs */
+        coap_resource_set_get_observable(resource, 1);
+        coap_add_resource(ctx, resource);
+
+
 #ifdef CONFIG_COAP_OSCORE_SUPPORT
         resource = coap_resource_init(coap_make_str_const("oscore"), COAP_RESOURCE_FLAGS_OSCORE_ONLY);
         if (!resource) {
