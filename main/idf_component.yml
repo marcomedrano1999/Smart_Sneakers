@@ -7,5 +7,6 @@ dependencies:
     version: '>=5.0'
   protocol_examples_common:
     path: ${IDF_PATH}/examples/common_components/protocol_examples_common
+  espressif/led_strip: "^2.4.1"
 description: CoAP Server Example
 version: 1.0.0

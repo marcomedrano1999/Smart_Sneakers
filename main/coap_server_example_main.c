@@ -31,6 +31,8 @@
 
 #include "coap3/coap.h"
 
+#include "led_strip.h"
+
 #ifndef CONFIG_COAP_SERVER_SUPPORT
 #error COAP_SERVER_SUPPORT needs to be enabled
 #endif /* COAP_SERVER_SUPPORT */
@@ -67,6 +69,10 @@ static int espressif_data_len = 0;
 static char shoelace_data[10];
 static int shoelace_data_len = 0;
 
+static int shoe_ledcolor[3] = {0};
+static int shoe_ledcolor_len = 0;
+static led_strip_handle_t led_strip;
+
 #ifdef CONFIG_COAP_MBEDTLS_PKI
 /* CA cert, taken from coap_ca.pem
    Server cert, taken from coap_server.crt
@@ -93,8 +99,30 @@ extern uint8_t oscore_conf_start[] asm("_binary_coap_oscore_conf_start");
 extern uint8_t oscore_conf_end[]   asm("_binary_coap_oscore_conf_end");
 #endif /* CONFIG_COAP_OSCORE_SUPPORT */
 
-#define INITIAL_DATA "Hello World!"
-#define SHOELACE_DATA_DEFAULT "untie"
+#define INITIAL_DATA                    "Hello World!"
+#define SHOELACE_DATA_DEFAULT           "untie"
+#define SHOE_LEDCOLOR_RED_DEFAULT       0
+#define SHOE_LEDCOLOR_GREEN_DEFAULT     0
+#define SHOE_LEDCOLOR_BLUE_DEFAULT      0
+
+typedef enum {
+    SHOE_LEDCOLOR_RED,
+    SHOE_LEDCOLOR_GREEN,
+    SHOE_LEDCOLOR_BLUE
+}Show_LedColor_t;
+
+
+
+static void configure_led(void);
+
+static void update_leds()
+{
+    led_strip_clear(led_strip);
+    led_strip_set_pixel(led_strip, 0, shoe_ledcolor[SHOE_LEDCOLOR_RED],
+                             shoe_ledcolor[SHOE_LEDCOLOR_GREEN],
+                            shoe_ledcolor[SHOE_LEDCOLOR_BLUE]);
+    led_strip_refresh(led_strip);
+}
 
 /*
  * The resource handler
@@ -222,6 +250,110 @@ hnd_shoelace_put(coap_resource_t *resource,
 }
 
 
+/*
+ * The resource handler
+ */
+static void
+hnd_shoeledcolor_get(coap_resource_t *resource,
+                  coap_session_t *session,
+                  const coap_pdu_t *request,
+                  const coap_string_t *query,
+                  coap_pdu_t *response)
+{
+    coap_pdu_set_code(response, COAP_RESPONSE_CODE_CONTENT);
+    char ledcolor[7]= {0};
+
+    sprintf(ledcolor, "%02x%02x%02x",
+            shoe_ledcolor[SHOE_LEDCOLOR_RED] & 0xFF,
+            shoe_ledcolor[SHOE_LEDCOLOR_GREEN] & 0xFF,
+            shoe_ledcolor[SHOE_LEDCOLOR_BLUE] & 0xFF);
+
+    coap_add_data_large_response(resource, session, request, response,
+                                 query, COAP_MEDIATYPE_TEXT_PLAIN, 60, 0,
+                                 (size_t)sizeof(ledcolor)-1,
+                                 (const u_char *)ledcolor,
+                                 NULL, NULL);
+}
+
+static void
+hnd_shoeledcolor_put(coap_resource_t *resource,
+                  coap_session_t *session,
+                  const coap_pdu_t *request,
+                  const coap_string_t *query,
+                  coap_pdu_t *response)
+{
+    size_t size;
+    size_t offset;
+    size_t total;
+    const unsigned char *data;
+    char num_buffer[2];
+    char *remaining;
+
+    coap_resource_notify_observers(resource, NULL);
+
+    if (strcmp (espressif_data, INITIAL_DATA) == 0) {
+        coap_pdu_set_code(response, COAP_RESPONSE_CODE_CREATED);
+    } else {
+        coap_pdu_set_code(response, COAP_RESPONSE_CODE_CHANGED);
+    }
+
+    /* coap_get_data_large() sets size to 0 on error */
+    (void)coap_get_data_large(request, &size, &data, &offset, &total);
+
+    if (size == 0) {      /* re-init */
+        shoe_ledcolor[SHOE_LEDCOLOR_RED] = SHOE_LEDCOLOR_RED_DEFAULT;
+        shoe_ledcolor[SHOE_LEDCOLOR_GREEN] = SHOE_LEDCOLOR_GREEN_DEFAULT;
+        shoe_ledcolor[SHOE_LEDCOLOR_BLUE] = SHOE_LEDCOLOR_BLUE_DEFAULT;
+    } else {
+        if(size == 6)
+        {
+            num_buffer[0] = (char)data[0];
+            num_buffer[1] = (char)data[1];
+            shoe_ledcolor[SHOE_LEDCOLOR_RED] = strtol(num_buffer, &remaining, 16);
+            
+            num_buffer[0] = (char)data[2];
+            num_buffer[1] = (char)data[3];
+            shoe_ledcolor[SHOE_LEDCOLOR_GREEN] = strtol(num_buffer, &remaining, 16);
+
+            num_buffer[0] = (char)data[4];
+            num_buffer[1] = (char)data[5];
+            shoe_ledcolor[SHOE_LEDCOLOR_BLUE] = strtol(num_buffer, &remaining, 16);
+
+            update_leds();
+
+            ESP_LOGI(TAG,"/shoe/ledcolor received data: R: 0x%x, G: 0x%x, B: 0x%x", 
+                    shoe_ledcolor[SHOE_LEDCOLOR_RED] & 0xFF,
+                    shoe_ledcolor[SHOE_LEDCOLOR_GREEN] & 0xFF,
+                    shoe_ledcolor[SHOE_LEDCOLOR_BLUE] & 0xFF);
+        }
+        else
+        {
+            // If the argument is not in RRGGBB format, it should let know the client
+            coap_pdu_set_code(response, COAP_RESPONSE_CODE_BAD_OPTION);
+        }
+    }
+}
+
+static void
+hnd_shoeledcolor_delete(coap_resource_t *resource,
+                     coap_session_t *session,
+                     const coap_pdu_t *request,
+                     const coap_string_t *query,
+                     coap_pdu_t *response)
+{
+    coap_resource_notify_observers(resource, NULL);
+    
+    // Turn off led and reset color values
+    shoe_ledcolor[SHOE_LEDCOLOR_RED] = SHOE_LEDCOLOR_RED_DEFAULT;
+    shoe_ledcolor[SHOE_LEDCOLOR_GREEN] = SHOE_LEDCOLOR_GREEN_DEFAULT;
+    shoe_ledcolor[SHOE_LEDCOLOR_BLUE] = SHOE_LEDCOLOR_BLUE_DEFAULT;
+
+    update_leds();
+    led_strip_clear(led_strip);
+
+    coap_pdu_set_code(response, COAP_RESPONSE_CODE_DELETED);
+}
+
 #ifdef CONFIG_COAP_OSCORE_SUPPORT
 static void
 hnd_oscore_get(coap_resource_t *resource,
@@ -312,6 +444,10 @@ static void coap_example_server(void *p)
     snprintf(shoelace_data, sizeof(shoelace_data), SHOELACE_DATA_DEFAULT);
     shoelace_data_len = strlen(shoelace_data);
 
+    shoe_ledcolor_len = sizeof(shoe_ledcolor);
+    shoe_ledcolor[SHOE_LEDCOLOR_RED] = SHOE_LEDCOLOR_RED_DEFAULT;
+    shoe_ledcolor[SHOE_LEDCOLOR_GREEN] = SHOE_LEDCOLOR_GREEN_DEFAULT;
+    shoe_ledcolor[SHOE_LEDCOLOR_BLUE] = SHOE_LEDCOLOR_BLUE_DEFAULT;
 
     coap_set_log_handler(coap_log_handler);
     coap_set_log_level(EXAMPLE_COAP_LOG_DEFAULT_LEVEL);
@@ -467,6 +603,26 @@ static void coap_example_server(void *p)
         coap_resource_set_get_observable(resource, 1);
         coap_add_resource(ctx, resource);
 
+        // Initialize the leds
+        configure_led();
+        update_leds();
+
+        // Add ledcolor service
+        resource = coap_resource_init(coap_make_str_const("shoe/ledcolor"), 0);
+        if (!resource) {
+            ESP_LOGE(TAG, "coap_resource_init() failed");
+            goto clean_up;
+        }
+        coap_register_handler(resource, COAP_REQUEST_GET, hnd_shoeledcolor_get);
+        coap_register_handler(resource, COAP_REQUEST_PUT, hnd_shoeledcolor_put);
+        coap_register_handler(resource, COAP_REQUEST_DELETE, hnd_shoeledcolor_delete);
+        
+        /* We possibly want to Observe the GETs */
+        coap_resource_set_get_observable(resource, 1);
+        coap_add_resource(ctx, resource);
+
+        
+
 
 #ifdef CONFIG_COAP_OSCORE_SUPPORT
         resource = coap_resource_init(coap_make_str_const("oscore"), COAP_RESOURCE_FLAGS_OSCORE_ONLY);
@@ -530,4 +686,25 @@ void app_main(void)
     ESP_ERROR_CHECK(example_connect());
 
     xTaskCreate(coap_example_server, "coap", 8 * 1024, NULL, 5, NULL);
+}
+
+
+
+static void configure_led(void)
+{
+    ESP_LOGI(TAG, "Example configured to blink addressable LED!");
+    /* LED strip initialization with the GPIO and pixels number*/
+    led_strip_config_t strip_config = {
+        .strip_gpio_num = 48,
+        .max_leds = 1, // at least one LED on board
+    };
+
+    led_strip_rmt_config_t rmt_config = {
+        .resolution_hz = 10 * 1000 * 1000, // 10MHz
+        .flags.with_dma = false,
+    };
+    ESP_ERROR_CHECK(led_strip_new_rmt_device(&strip_config, &rmt_config, &led_strip));
+
+    /* Set all LED off to clear all pixels */
+    led_strip_clear(led_strip);
 }

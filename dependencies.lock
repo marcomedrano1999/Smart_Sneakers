@@ -5,6 +5,12 @@ dependencies:
       service_url: https://api.components.espressif.com/
       type: service
     version: 4.3.4~1
+  espressif/led_strip:
+    component_hash: 67d2744208e9c12d8b1992d21c979396c1726e57cb7e35e7c171c515be20f8ea
+    source:
+      service_url: https://api.components.espressif.com/
+      type: service
+    version: 2.5.3
   espressif/mdns:
     component_hash: d8ae7aa491ff97aea1d00d514a1de42cdbaaf1bce10df183968fa5594b904de7
     source:
@@ -22,6 +28,6 @@ dependencies:
       path: C:\Users\marco\esp\v5.2\esp-idf\examples\common_components\protocol_examples_common
       type: local
     version: '*'
-manifest_hash: 69d881ec104e818f386def2260b4778eaa3e097c8c3e3e101aae4cf75c9b0943
+manifest_hash: e9cd346efed596c67be40a2064de6794fba8d8c00f95f55f089d9ab1bfad673c
 target: esp32s3
 version: 1.0.0
