@@ -35,6 +35,8 @@
 
 #include "driver/gptimer.h"
 
+#include "mdns.h"
+
 #ifndef CONFIG_COAP_SERVER_SUPPORT
 #error COAP_SERVER_SUPPORT needs to be enabled
 #endif /* COAP_SERVER_SUPPORT */
@@ -112,11 +114,42 @@ extern uint8_t oscore_conf_end[]   asm("_binary_coap_oscore_conf_end");
 #define SHOE_LEDCOLOR_BLUE_DEFAULT      0
 #define SHOE_SIZE_DEFAULT               20
 
+#define SHOE_MDNS_HOSTNAME              "Smart_sneakers"
+#define SHOE_MDNS_DEFAULT_INSTANCE      "Smart sneakers"
+
 typedef enum {
     SHOE_LEDCOLOR_RED,
     SHOE_LEDCOLOR_GREEN,
     SHOE_LEDCOLOR_BLUE
 }Show_LedColor_t;
+
+
+
+static void initialize_mdns(void)
+{
+    char *hostname = SHOE_MDNS_HOSTNAME;
+    char *instancename = SHOE_MDNS_DEFAULT_INSTANCE;
+
+    //initialize mDNS
+    ESP_ERROR_CHECK( mdns_init() );
+    //set mDNS hostname
+    ESP_ERROR_CHECK( mdns_hostname_set(hostname) );
+    ESP_LOGI(TAG, "mdns hostname set to: [%s]", hostname);
+    //set default mDNS instance name
+    ESP_ERROR_CHECK( mdns_instance_name_set(instancename) );
+    ESP_LOGI(TAG, "mdns Instance name set to: [%s]", hostname);
+
+    //structure with TXT records
+    /*mdns_txt_item_t serviceTxtData[3] = {
+        {"board", "esp32"},
+        {"u", "user"},
+        {"p", "password"}
+    };*/
+
+    // Add shoe_control service
+    mdns_service_add("shoe_control", "_coap", "_udp", 5683, NULL, 0);
+
+}
 
 
 
@@ -808,6 +841,10 @@ static void coap_example_server(void *p)
 #endif /* CONFIG_EXAMPLE_COAP_MCAST_IPV6 */
         }
 #endif /* CONFIG_EXAMPLE_COAP_MCAST_IPV4 || CONFIG_EXAMPLE_COAP_MCAST_IPV6 */
+
+
+        // Initialize mDNS
+        initialize_mdns();
 
         wait_ms = COAP_RESOURCE_CHECK_TIME * 1000;
 
