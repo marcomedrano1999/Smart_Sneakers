@@ -77,6 +77,8 @@ static led_strip_handle_t led_strip;
 
 static unsigned int shoe_steps_counter = 0;
 
+static int shoe_size = 0;
+
 #ifdef CONFIG_COAP_MBEDTLS_PKI
 /* CA cert, taken from coap_ca.pem
    Server cert, taken from coap_server.crt
@@ -108,6 +110,7 @@ extern uint8_t oscore_conf_end[]   asm("_binary_coap_oscore_conf_end");
 #define SHOE_LEDCOLOR_RED_DEFAULT       0
 #define SHOE_LEDCOLOR_GREEN_DEFAULT     0
 #define SHOE_LEDCOLOR_BLUE_DEFAULT      0
+#define SHOE_SIZE_DEFAULT               20
 
 typedef enum {
     SHOE_LEDCOLOR_RED,
@@ -213,6 +216,7 @@ hnd_shoelace_get(coap_resource_t *resource,
                   coap_pdu_t *response)
 {
     coap_pdu_set_code(response, COAP_RESPONSE_CODE_CONTENT);
+    ESP_LOGI(TAG,"/shoe/shoelace send data: %s", (char*)shoelace_data);
     coap_add_data_large_response(resource, session, request, response,
                                  query, COAP_MEDIATYPE_TEXT_PLAIN, 60, 0,
                                  (size_t)shoelace_data_len,
@@ -278,6 +282,11 @@ hnd_shoeledcolor_get(coap_resource_t *resource,
     char ledcolor[7]= {0};
 
     sprintf(ledcolor, "%02x%02x%02x",
+            shoe_ledcolor[SHOE_LEDCOLOR_RED] & 0xFF,
+            shoe_ledcolor[SHOE_LEDCOLOR_GREEN] & 0xFF,
+            shoe_ledcolor[SHOE_LEDCOLOR_BLUE] & 0xFF);
+
+    ESP_LOGI(TAG,"/shoe/ledcolor send data: R: 0x%x, G: 0x%x, B: 0x%x", 
             shoe_ledcolor[SHOE_LEDCOLOR_RED] & 0xFF,
             shoe_ledcolor[SHOE_LEDCOLOR_GREEN] & 0xFF,
             shoe_ledcolor[SHOE_LEDCOLOR_BLUE] & 0xFF);
@@ -365,6 +374,11 @@ hnd_shoeledcolor_delete(coap_resource_t *resource,
     update_leds();
     led_strip_clear(led_strip);
 
+    ESP_LOGI(TAG,"LED color reset to: R: 0x%x, G: 0x%x, B: 0x%x", 
+                    shoe_ledcolor[SHOE_LEDCOLOR_RED] & 0xFF,
+                    shoe_ledcolor[SHOE_LEDCOLOR_GREEN] & 0xFF,
+                    shoe_ledcolor[SHOE_LEDCOLOR_BLUE] & 0xFF);
+
     coap_pdu_set_code(response, COAP_RESPONSE_CODE_DELETED);
 }
 
@@ -385,6 +399,8 @@ hnd_shoestepscounter_get(coap_resource_t *resource,
     char temp_arr[20] = {0};
     sprintf(temp_arr,"%d",shoe_steps_counter);
 
+    ESP_LOGI(TAG,"Send shoe steps counter: %d",shoe_steps_counter);
+
     coap_add_data_large_response(resource, session, request, response,
                                  query, COAP_MEDIATYPE_TEXT_PLAIN, 60, 0,
                                  strlen(temp_arr),
@@ -404,7 +420,35 @@ hnd_shoestepscounter_delete(coap_resource_t *resource,
     // Reset shoe step counter
     shoe_steps_counter = 0;
 
+    ESP_LOGI(TAG,"Reset shoe steps counter to: %d",shoe_steps_counter);
+
     coap_pdu_set_code(response, COAP_RESPONSE_CODE_DELETED);
+}
+
+
+/*
+ * The resource handler
+ */
+static void
+hnd_shoesize_get(coap_resource_t *resource,
+                  coap_session_t *session,
+                  const coap_pdu_t *request,
+                  const coap_string_t *query,
+                  coap_pdu_t *response)
+{
+    coap_pdu_set_code(response, COAP_RESPONSE_CODE_CONTENT);
+
+    // Convert shoe step count to string
+    char temp_arr[20] = {0};
+    sprintf(temp_arr,"%d",shoe_size);
+
+    ESP_LOGI(TAG,"Send shoe size: %d",shoe_size);
+
+    coap_add_data_large_response(resource, session, request, response,
+                                 query, COAP_MEDIATYPE_TEXT_PLAIN, 60, 0,
+                                 strlen(temp_arr),
+                                 (const u_char *)temp_arr,
+                                 NULL, NULL);
 }
 
 
@@ -526,6 +570,9 @@ static void coap_example_server(void *p)
     };
     ESP_ERROR_CHECK(gptimer_set_alarm_action(gptimer, &alarm_config));
     ESP_ERROR_CHECK(gptimer_start(gptimer));
+
+    // Initialize show size variable
+    shoe_size = SHOE_SIZE_DEFAULT;
 
 
     coap_set_log_handler(coap_log_handler);
@@ -712,6 +759,19 @@ static void coap_example_server(void *p)
         /* We possibly want to Observe the GETs */
         coap_resource_set_get_observable(resource, 1);
         coap_add_resource(ctx, resource);
+
+        // Add shoe size service
+        resource = coap_resource_init(coap_make_str_const("shoe/size"), 0);
+        if (!resource) {
+            ESP_LOGE(TAG, "coap_resource_init() failed");
+            goto clean_up;
+        }
+        coap_register_handler(resource, COAP_REQUEST_GET, hnd_shoesize_get);
+        
+        /* We possibly want to Observe the GETs */
+        coap_resource_set_get_observable(resource, 1);
+        coap_add_resource(ctx, resource);
+
 
 
 #ifdef CONFIG_COAP_OSCORE_SUPPORT
