@@ -33,6 +33,8 @@
 
 #include "led_strip.h"
 
+#include "driver/gptimer.h"
+
 #ifndef CONFIG_COAP_SERVER_SUPPORT
 #error COAP_SERVER_SUPPORT needs to be enabled
 #endif /* COAP_SERVER_SUPPORT */
@@ -72,6 +74,8 @@ static int shoelace_data_len = 0;
 static int shoe_ledcolor[3] = {0};
 static int shoe_ledcolor_len = 0;
 static led_strip_handle_t led_strip;
+
+static unsigned int shoe_steps_counter = 0;
 
 #ifdef CONFIG_COAP_MBEDTLS_PKI
 /* CA cert, taken from coap_ca.pem
@@ -123,6 +127,16 @@ static void update_leds()
                             shoe_ledcolor[SHOE_LEDCOLOR_BLUE]);
     led_strip_refresh(led_strip);
 }
+
+static bool IRAM_ATTR shoe_step_counter_cb(gptimer_handle_t timer, const gptimer_alarm_event_data_t *edata, void *user_data)
+{
+    BaseType_t high_task_awoken = pdFALSE;
+    // Increment counter
+    shoe_steps_counter++;
+    // return whether we need to yield at the end of ISR
+    return (high_task_awoken == pdTRUE);
+}
+
 
 /*
  * The resource handler
@@ -354,6 +368,46 @@ hnd_shoeledcolor_delete(coap_resource_t *resource,
     coap_pdu_set_code(response, COAP_RESPONSE_CODE_DELETED);
 }
 
+
+/*
+ * The resource handler
+ */
+static void
+hnd_shoestepscounter_get(coap_resource_t *resource,
+                  coap_session_t *session,
+                  const coap_pdu_t *request,
+                  const coap_string_t *query,
+                  coap_pdu_t *response)
+{
+    coap_pdu_set_code(response, COAP_RESPONSE_CODE_CONTENT);
+
+    // Convert shoe step count to string
+    char temp_arr[20] = {0};
+    sprintf(temp_arr,"%d",shoe_steps_counter);
+
+    coap_add_data_large_response(resource, session, request, response,
+                                 query, COAP_MEDIATYPE_TEXT_PLAIN, 60, 0,
+                                 strlen(temp_arr),
+                                 (const u_char *)temp_arr,
+                                 NULL, NULL);
+}
+
+static void
+hnd_shoestepscounter_delete(coap_resource_t *resource,
+                     coap_session_t *session,
+                     const coap_pdu_t *request,
+                     const coap_string_t *query,
+                     coap_pdu_t *response)
+{
+    coap_resource_notify_observers(resource, NULL);
+    
+    // Reset shoe step counter
+    shoe_steps_counter = 0;
+
+    coap_pdu_set_code(response, COAP_RESPONSE_CODE_DELETED);
+}
+
+
 #ifdef CONFIG_COAP_OSCORE_SUPPORT
 static void
 hnd_oscore_get(coap_resource_t *resource,
@@ -448,6 +502,31 @@ static void coap_example_server(void *p)
     shoe_ledcolor[SHOE_LEDCOLOR_RED] = SHOE_LEDCOLOR_RED_DEFAULT;
     shoe_ledcolor[SHOE_LEDCOLOR_GREEN] = SHOE_LEDCOLOR_GREEN_DEFAULT;
     shoe_ledcolor[SHOE_LEDCOLOR_BLUE] = SHOE_LEDCOLOR_BLUE_DEFAULT;
+
+    // Initialize the show step counter
+    shoe_steps_counter = 0;
+    gptimer_handle_t gptimer = NULL;
+    gptimer_config_t timer_config = {
+        .clk_src = GPTIMER_CLK_SRC_DEFAULT,
+        .direction = GPTIMER_COUNT_UP,
+        .resolution_hz = 1000000, // 1MHz, 1 tick=1us
+    };
+    ESP_ERROR_CHECK(gptimer_new_timer(&timer_config, &gptimer));
+    gptimer_event_callbacks_t cbs = {
+        .on_alarm = shoe_step_counter_cb,
+    };
+    ESP_ERROR_CHECK(gptimer_register_event_callbacks(gptimer, &cbs, NULL));
+    // Enable timer
+    ESP_ERROR_CHECK(gptimer_enable(gptimer));
+    //Start timer, auto-reload at alarm event
+    gptimer_alarm_config_t alarm_config = {
+        .reload_count = 0,
+        .alarm_count = 1000000, // period = 1s
+        .flags.auto_reload_on_alarm = true,
+    };
+    ESP_ERROR_CHECK(gptimer_set_alarm_action(gptimer, &alarm_config));
+    ESP_ERROR_CHECK(gptimer_start(gptimer));
+
 
     coap_set_log_handler(coap_log_handler);
     coap_set_log_level(EXAMPLE_COAP_LOG_DEFAULT_LEVEL);
@@ -621,7 +700,18 @@ static void coap_example_server(void *p)
         coap_resource_set_get_observable(resource, 1);
         coap_add_resource(ctx, resource);
 
+        // Add steps counter service
+        resource = coap_resource_init(coap_make_str_const("shoe/steps"), 0);
+        if (!resource) {
+            ESP_LOGE(TAG, "coap_resource_init() failed");
+            goto clean_up;
+        }
+        coap_register_handler(resource, COAP_REQUEST_GET, hnd_shoestepscounter_get);
+        coap_register_handler(resource, COAP_REQUEST_DELETE, hnd_shoestepscounter_delete);
         
+        /* We possibly want to Observe the GETs */
+        coap_resource_set_get_observable(resource, 1);
+        coap_add_resource(ctx, resource);
 
 
 #ifdef CONFIG_COAP_OSCORE_SUPPORT
