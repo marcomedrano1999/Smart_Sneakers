@@ -65,8 +65,8 @@
 
 const static char *TAG = "CoAP_server";
 
-static char espressif_data[100];
-static int espressif_data_len = 0;
+static char shoe_name_data[20];
+static int shoe_name_data_len = 0;
 
 static char shoelace_data[10];
 static int shoelace_data_len = 0;
@@ -105,7 +105,7 @@ extern uint8_t oscore_conf_start[] asm("_binary_coap_oscore_conf_start");
 extern uint8_t oscore_conf_end[]   asm("_binary_coap_oscore_conf_end");
 #endif /* CONFIG_COAP_OSCORE_SUPPORT */
 
-#define INITIAL_DATA                    "Hello World!"
+#define SHOE_NAME_DEFAULT               "No name"
 #define SHOELACE_DATA_DEFAULT           "untie"
 #define SHOE_LEDCOLOR_RED_DEFAULT       0
 #define SHOE_LEDCOLOR_GREEN_DEFAULT     0
@@ -145,22 +145,25 @@ static bool IRAM_ATTR shoe_step_counter_cb(gptimer_handle_t timer, const gptimer
  * The resource handler
  */
 static void
-hnd_espressif_get(coap_resource_t *resource,
+hnd_shoename_get(coap_resource_t *resource,
                   coap_session_t *session,
                   const coap_pdu_t *request,
                   const coap_string_t *query,
                   coap_pdu_t *response)
 {
     coap_pdu_set_code(response, COAP_RESPONSE_CODE_CONTENT);
+
+    ESP_LOGI(TAG,"/shoe/name send name: %s",shoe_name_data);
+
     coap_add_data_large_response(resource, session, request, response,
                                  query, COAP_MEDIATYPE_TEXT_PLAIN, 60, 0,
-                                 (size_t)espressif_data_len,
-                                 (const u_char *)espressif_data,
+                                 (size_t)shoe_name_data_len,
+                                 (const u_char *)shoe_name_data,
                                  NULL, NULL);
 }
 
 static void
-hnd_espressif_put(coap_resource_t *resource,
+hnd_shoename_put(coap_resource_t *resource,
                   coap_session_t *session,
                   const coap_pdu_t *request,
                   const coap_string_t *query,
@@ -173,7 +176,7 @@ hnd_espressif_put(coap_resource_t *resource,
 
     coap_resource_notify_observers(resource, NULL);
 
-    if (strcmp (espressif_data, INITIAL_DATA) == 0) {
+    if (strcmp (shoe_name_data, SHOE_NAME_DEFAULT) == 0) {
         coap_pdu_set_code(response, COAP_RESPONSE_CODE_CREATED);
     } else {
         coap_pdu_set_code(response, COAP_RESPONSE_CODE_CHANGED);
@@ -183,24 +186,27 @@ hnd_espressif_put(coap_resource_t *resource,
     (void)coap_get_data_large(request, &size, &data, &offset, &total);
 
     if (size == 0) {      /* re-init */
-        snprintf(espressif_data, sizeof(espressif_data), INITIAL_DATA);
-        espressif_data_len = strlen(espressif_data);
+        snprintf(shoe_name_data, sizeof(shoe_name_data), SHOE_NAME_DEFAULT);
+        shoe_name_data_len = strlen(shoe_name_data);
     } else {
-        espressif_data_len = size > sizeof (espressif_data) ? sizeof (espressif_data) : size;
-        memcpy (espressif_data, data, espressif_data_len);
+        shoe_name_data_len = size > sizeof (shoe_name_data) ? sizeof (shoe_name_data) : size;
+        memcpy (shoe_name_data, data, shoe_name_data_len);
     }
+
+    ESP_LOGI(TAG,"/shoe/name change name to: %s",shoe_name_data);
 }
 
 static void
-hnd_espressif_delete(coap_resource_t *resource,
+hnd_shoename_delete(coap_resource_t *resource,
                      coap_session_t *session,
                      const coap_pdu_t *request,
                      const coap_string_t *query,
                      coap_pdu_t *response)
 {
     coap_resource_notify_observers(resource, NULL);
-    snprintf(espressif_data, sizeof(espressif_data), INITIAL_DATA);
-    espressif_data_len = strlen(espressif_data);
+    snprintf(shoe_name_data, sizeof(shoe_name_data), SHOE_NAME_DEFAULT);
+    shoe_name_data_len = strlen(shoe_name_data);
+    ESP_LOGI(TAG,"/shoe/name reset name to: %s",shoe_name_data);
     coap_pdu_set_code(response, COAP_RESPONSE_CODE_DELETED);
 }
 
@@ -314,7 +320,10 @@ hnd_shoeledcolor_put(coap_resource_t *resource,
 
     coap_resource_notify_observers(resource, NULL);
 
-    if (strcmp (espressif_data, INITIAL_DATA) == 0) {
+    if (shoe_ledcolor[SHOE_LEDCOLOR_RED] == SHOE_LEDCOLOR_RED_DEFAULT &&
+        shoe_ledcolor[SHOE_LEDCOLOR_GREEN] == SHOE_LEDCOLOR_GREEN_DEFAULT &&
+        shoe_ledcolor[SHOE_LEDCOLOR_BLUE] == SHOE_LEDCOLOR_BLUE_DEFAULT
+    ) {
         coap_pdu_set_code(response, COAP_RESPONSE_CODE_CREATED);
     } else {
         coap_pdu_set_code(response, COAP_RESPONSE_CODE_CHANGED);
@@ -535,8 +544,8 @@ static void coap_example_server(void *p)
     /* Initialize libcoap library */
     coap_startup();
 
-    snprintf(espressif_data, sizeof(espressif_data), INITIAL_DATA);
-    espressif_data_len = strlen(espressif_data);
+    snprintf(shoe_name_data, sizeof(shoe_name_data), SHOE_NAME_DEFAULT);
+    shoe_name_data_len = strlen(shoe_name_data);
 
     // Initialize the data
     snprintf(shoelace_data, sizeof(shoelace_data), SHOELACE_DATA_DEFAULT);
@@ -703,14 +712,14 @@ static void coap_example_server(void *p)
             goto clean_up;
         }
 
-        resource = coap_resource_init(coap_make_str_const("Espressif"), 0);
+        resource = coap_resource_init(coap_make_str_const("shoe/name"), 0);
         if (!resource) {
             ESP_LOGE(TAG, "coap_resource_init() failed");
             goto clean_up;
         }
-        coap_register_handler(resource, COAP_REQUEST_GET, hnd_espressif_get);
-        coap_register_handler(resource, COAP_REQUEST_PUT, hnd_espressif_put);
-        coap_register_handler(resource, COAP_REQUEST_DELETE, hnd_espressif_delete);
+        coap_register_handler(resource, COAP_REQUEST_GET, hnd_shoename_get);
+        coap_register_handler(resource, COAP_REQUEST_PUT, hnd_shoename_put);
+        coap_register_handler(resource, COAP_REQUEST_DELETE, hnd_shoename_delete);
         
         /* We possibly want to Observe the GETs */
         coap_resource_set_get_observable(resource, 1);
