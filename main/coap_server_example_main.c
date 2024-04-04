@@ -77,7 +77,7 @@ static int shoe_ledcolor[3] = {0};
 static int shoe_ledcolor_len = 0;
 static led_strip_handle_t led_strip;
 
-static unsigned int shoe_steps_counter = 0;
+static volatile unsigned int shoe_steps_counter = 0;
 
 static int shoe_size = 0;
 
@@ -138,13 +138,6 @@ static void initialize_mdns(void)
     //set default mDNS instance name
     ESP_ERROR_CHECK( mdns_instance_name_set(instancename) );
     ESP_LOGI(TAG, "mdns Instance name set to: [%s]", hostname);
-
-    //structure with TXT records
-    /*mdns_txt_item_t serviceTxtData[3] = {
-        {"board", "esp32"},
-        {"u", "user"},
-        {"p", "password"}
-    };*/
 
     // Add shoe_control service
     mdns_service_add("shoe_control", "_coap", "_udp", 5683, NULL, 0);
@@ -219,9 +212,11 @@ hnd_shoename_put(coap_resource_t *resource,
     (void)coap_get_data_large(request, &size, &data, &offset, &total);
 
     if (size == 0) {      /* re-init */
+        memset(shoe_name_data,0,sizeof(shoe_name_data));
         snprintf(shoe_name_data, sizeof(shoe_name_data), SHOE_NAME_DEFAULT);
         shoe_name_data_len = strlen(shoe_name_data);
     } else {
+        memset(shoe_name_data,0,sizeof(shoe_name_data));
         shoe_name_data_len = size > sizeof (shoe_name_data) ? sizeof (shoe_name_data) : size;
         memcpy (shoe_name_data, data, shoe_name_data_len);
     }
